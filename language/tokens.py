@@ -10,7 +10,10 @@ class Keyword(Enum):
     ASSIGN_END = 'hai'
     AND = 'aur'
     OR = 'ya'
-    NOT = 'ulta'
+    IF = 'agar'
+    THEN = 'tho'
+    ELIF = 'yaphir'
+    ELSE = 'nahitho'
 
 
 # ===========================
@@ -34,10 +37,12 @@ class TokenType(Enum):
     IDENTIFIER = 'ID'
     KEYWORD = 'KEYWORD'
 
-    GREATER_THAN = '>'
+    EQUAL = '='
+    NOT_EQUAL = '!='
     LESS_THAN = '<'
-    GREATER_THAN_EQUAL = '>='
+    GREATER_THAN = '>'
     LESS_THAN_EQUAL = '<='
+    GREATER_THAN_EQUAL = '>='
 
 
 # ===========================

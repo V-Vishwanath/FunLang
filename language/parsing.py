@@ -1,8 +1,7 @@
 from language.datatypes import Number
 from language.nodes import *
-from language.utils import Position
+from language.errors import *
 from language.tokens import TokenType, Keyword
-from language.errors import InvalidCharError, InvalidSyntaxError, RunTimeError
 from language.results import ParseResult, RuntimeResult
 
 
@@ -74,10 +73,13 @@ class Lexer:
 
         if self.char == '=':
             self.increment()
-            return Token(TokenType.NOTEQ, pos_start=pos_start, pos_end=self.pos), None
+            return Token(TokenType.NOT_EQUAL, pos_start=pos_start, pos_end=self.pos), None
 
         self.increment()
-        return None, 'Error'
+        return None, ExpectedCharError(
+            "'=' after !",
+            pos_start=pos_start, pos_end=self.pos
+        )
 
     def lessThanEqToken(self):
         token_type = TokenType.LESS_THAN
@@ -156,7 +158,7 @@ class Parser:
         left = res.register(funcLeft())
         if res.error: return res
 
-        while self.token and self.token.token_type in tokens:
+        while self.token and (self.token.token_type in tokens or self.token.value in tokens):
             operator = self.token
             res.register(self.increment())
             right = res.register(funcRight())
@@ -165,6 +167,61 @@ class Parser:
             left = BinaryOpNode(left, operator, right)
 
         return res.success(left)
+
+    def parseIfExpr(self):
+        res = ParseResult()
+        cases = []
+        else_case = None
+
+        if not self.token.value == Keyword.IF:
+            return res.failure(InvalidSyntaxError(
+                'Expected IF statement',
+                self.token.pos_start, self.token.pos_end
+            ))
+
+        res.register(self.increment())
+
+        cond = res.register(self.expr())
+        if res.error: return res
+
+        if not self.token.value == Keyword.THEN:
+            return res.failure(InvalidSyntaxError(
+                'Expected THEN AFTER IF',
+                self.token.pos_start, self.token.pos_end
+            ))
+
+        res.register(self.increment())
+
+        expr = res.register(self.expr())
+        if res.error: return res
+        cases.append((cond, expr))
+
+        while self.token.value == Keyword.ELIF:
+            res.register(self.increment())
+
+            cond = res.register(self.expr())
+            if res.error: return res
+
+            if not self.token.value == Keyword.THEN:
+                return res.failure(InvalidSyntaxError(
+                    'Expected THEN AFTER ELSEIF',
+                    self.token.pos_start, self.token.pos_end
+                ))
+
+            res.register(self.increment())
+
+            expr = res.register(self.expr())
+            if res.error: return res
+            cases.append((cond, expr))
+
+        if self.token.value == Keyword.ELSE:
+            res.register(self.increment())
+
+            expr = res.register(self.expr())
+            if res.error: return res
+            else_case = expr
+
+        return res.success(ConditionsNode(cases, else_case))
 
     def atom(self):
         res = ParseResult()
@@ -192,6 +249,11 @@ class Parser:
                     self.token.pos_start, self.token.pos_end
                 ))
 
+        elif token.value == Keyword.IF:
+            expr = res.register(self.parseIfExpr())
+            if res.error: return res
+            return res.success(expr)
+
         return res.failure(InvalidSyntaxError(
             "Expected a number, or one of '+', '-' or '('!",
             token.pos_start, token.pos_end
@@ -214,6 +276,20 @@ class Parser:
 
     def term(self):
         return self.binaryOperation(self.factor, (TokenType.MULTIPLY, TokenType.DIVIDE))
+
+    def arith_expr(self):
+        return self.binaryOperation(self.term, (TokenType.PLUS, TokenType.MINUS))
+
+    def comp_expr(self):
+        res = ParseResult()
+
+        node = res.register(self.binaryOperation(self.arith_expr, (
+            TokenType.EQUAL, TokenType.NOT_EQUAL, TokenType.LESS_THAN,
+            TokenType.LESS_THAN_EQUAL, TokenType.GREATER_THAN, TokenType.GREATER_THAN_EQUAL
+        )))
+
+        if res.error: return res
+        return res.success(node)
 
     def expr(self):
         res = ParseResult()
@@ -241,7 +317,7 @@ class Parser:
             res.register(self.increment())
             return res.success(VarAssignNode(var, expr))
 
-        expr = res.register(self.binaryOperation(self.term, (TokenType.PLUS, TokenType.MINUS)))
+        expr = res.register(self.binaryOperation(self.comp_expr, (Keyword.AND, Keyword.OR)))
         if res.error: return res.failure(InvalidSyntaxError(
             'Expected var, number, or +, - or (',
             self.token.pos_start, self.token.pos_end
@@ -313,6 +389,24 @@ class Interpreter:
         elif node.operator.token_type == TokenType.POWER:
             num, error = left.pow(right)
 
+        elif node.operator.token_type == TokenType.EQUAL:
+            num, error = left.equalTo(right)
+        elif node.operator.token_type == TokenType.NOT_EQUAL:
+            num, error = left.notEqualTo(right)
+        elif node.operator.token_type == TokenType.LESS_THAN:
+            num, error = left.lessThan(right)
+        elif node.operator.token_type == TokenType.LESS_THAN_EQUAL:
+            num, error = left.lessThanEqTo(right)
+        elif node.operator.token_type == TokenType.GREATER_THAN:
+            num, error = left.greaterThan(right)
+        elif node.operator.token_type == TokenType.GREATER_THAN_EQUAL:
+            num, error = left.greaterThanEqualTo(right)
+
+        elif node.operator.value == Keyword.AND:
+            num, error = left.andWith(right)
+        elif node.operator.value == Keyword.OR:
+            num, error = left.orWith(right)
+
         if error: return res.failure(error)
         return res.success(num.setPos(node.pos_start, node.pos_end))
 
@@ -341,3 +435,22 @@ class Interpreter:
 
         self.context.symbol_table.set(var, value)
         return res.success(value)
+
+    def parseConditionsNode(self, node: ConditionsNode):
+        res = RuntimeResult()
+
+        for cond, expr in node.cases:
+            comp = res.register(self.visit(cond))
+            if res.error: return res
+
+            if comp.isTrue():
+                expr_res = res.register(self.visit(expr))
+                if res.error: return res
+                return res.success(expr_res)
+
+        if node.else_case:
+            else_res = res.register(self.visit(node.else_case))
+            if res.error: return res
+            return res.success(else_res)
+
+        return res.success(None)

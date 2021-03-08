@@ -27,12 +27,12 @@ class ErrorBase:
 
         num_lines = self.pos_end.line_no - self.pos_start.line_no + 1
         for i in range(num_lines):
-            line = text[idx_start : idx_end]
+            line = text[idx_start: idx_end]
             col_start = self.pos_start.col_no if i == 0 else 0
             col_end = self.pos_end.col_no if i == num_lines - 1 else len(line) - 1
 
             err += line + '\n'
-            err += ' '*col_start + '^'*(col_end - col_start)
+            err += ' ' * col_start + '^' * (col_end - col_start)
 
             idx_start = idx_end
             idx_end = text.find('\n', idx_start + 1)
@@ -82,3 +82,11 @@ class RunTimeError(ErrorBase):
             context = context.parent
 
         return 'Traceback:\n' + err
+
+
+# ===========================
+# Expected Character
+# ===========================
+class ExpectedCharError(ErrorBase):
+    def __init__(self, details, pos_start: Position, pos_end: Position):
+        super().__init__('Expected Character', details, pos_start, pos_end)

@@ -42,6 +42,41 @@ class Number:
                 )
             return Number(self.value / other.value, context=self.context), None
 
+    def equalTo(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value == other.value), context=self.context), None
+
+    def notEqualTo(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value != other.value), context=self.context), None
+
+    def greaterThan(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value > other.value), context=self.context), None
+
+    def greaterThanEqualTo(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value >= other.value), context=self.context), None
+
+    def lessThan(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value < other.value), context=self.context), None
+
+    def lessThanEqTo(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value <= other.value), context=self.context), None
+
+    def andWith(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value and other.value), context=self.context), None
+
+    def orWith(self, other):
+        if isinstance(other, Number):
+            return Number(int(self.value or other.value), context=self.context), None
+
+    def isTrue(self):
+        return self.value != 0
+
     def pow(self, other):
         if isinstance(other, Number):
             return Number(self.value ** other.value, context=self.context), None
