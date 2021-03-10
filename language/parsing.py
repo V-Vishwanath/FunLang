@@ -25,38 +25,42 @@ class Lexer:
         self.char = None
         self.increment()
 
+        self.tokens = None
+
     def increment(self):
         self.pos.increment(self.char)
         self.char = self.text[self.pos.index] if self.pos.index < len(self.text) else None
 
     def tokenize(self):
-        tokens = []
+        self.tokens = []
 
         while self.char:
             if self.char in ' \t':
                 self.increment()
 
             elif isNumberToken(self.char):
-                tokens.append(self.makeNumberToken())
+                self.tokens.append(self.makeNumberToken())
 
             elif isIDOrKeyword(self.char):
-                tokens.append(self.makeIDOrKeyword())
+                token, err = self.makeIDOrKeyword()
+                if err: return None, err
+                self.tokens.append(token)
 
             elif self.char == '!':
                 token, err = self.notEqToken()
                 if err: return None, err
-                tokens.append(token)
+                self.tokens.append(token)
 
             elif self.char == '<':
-                tokens.append(self.lessThanEqToken())
+                self.tokens.append(self.lessThanEqToken())
 
             elif self.char == '>':
-                tokens.append(self.greaterThanEqToken())
+                self.tokens.append(self.greaterThanEqToken())
 
             else:
                 try:
                     token_type = TokenType(self.char)
-                    tokens.append(Token(token_type, pos_start=self.pos))
+                    self.tokens.append(Token(token_type, pos_start=self.pos))
                     self.increment()
                 except ValueError:
                     char = self.char
@@ -64,8 +68,14 @@ class Lexer:
                     self.increment()
                     return [], InvalidCharError(f"'{char}'", pos_start, self.pos)
 
-        tokens.append(Token(TokenType.EOF, pos_start=self.pos))
-        return tokens, None
+        if len(self.tokens) and self.tokens[-1].value == 'nahi':
+            return None, InvalidSyntaxError(
+                'Expected tho after nahi',
+                self.pos, self.pos
+            )
+
+        self.tokens.append(Token(TokenType.EOF, pos_start=self.pos))
+        return self.tokens, None
 
     def notEqToken(self):
         pos_start = self.pos.copy()
@@ -128,11 +138,21 @@ class Lexer:
             inp_str += self.char
             self.increment()
 
+        if len(self.tokens) and self.tokens[-1].value == 'nahi':
+            if inp_str != 'tho':
+                return None, InvalidSyntaxError(
+                    'Expected tho after nahi',
+                    pos_start, self.pos
+                )
+            pos_start = self.tokens[-1].pos_start
+            del self.tokens[-1]
+            return Token(TokenType.KEYWORD, Keyword.ELSE, pos_start, self.pos), None
+
         try:
             keyword = Keyword(inp_str)
-            return Token(TokenType.KEYWORD, keyword, pos_start, self.pos)
+            return Token(TokenType.KEYWORD, keyword, pos_start, self.pos), None
         except ValueError:
-            return Token(TokenType.IDENTIFIER, inp_str, pos_start, self.pos)
+            return Token(TokenType.IDENTIFIER, inp_str, pos_start, self.pos), None
 
 
 # ===========================
@@ -158,9 +178,19 @@ class Parser:
         left = res.register(funcLeft())
         if res.error: return res
 
-        while self.token and (self.token.token_type in tokens or self.token.value in tokens):
-            operator = self.token
-            res.register(self.increment())
+        elements = (TokenType.INT, TokenType.FLOAT, TokenType.IDENTIFIER)
+
+        while self.token and (
+                self.token.token_type in tokens or
+                self.token.token_type in elements or
+                self.token.value in tokens
+        ):
+            if self.token.token_type in elements:
+                operator = Token(TokenType.EQUAL)
+            else:
+                operator = self.token
+                res.register(self.increment())
+
             right = res.register(funcRight())
             if res.error: return res
 
@@ -184,7 +214,14 @@ class Parser:
         cond = res.register(self.expr())
         if res.error: return res
 
-        if not self.token.value == Keyword.THEN:
+        if self.token.value != Keyword.ASSIGN_END:
+            return res.failure(InvalidSyntaxError(
+                'Expected to end comparision with hai',
+                self.token.pos_start, self.token.pos_end
+            ))
+        res.register(self.increment())
+
+        if self.token.value != Keyword.THEN:
             return res.failure(InvalidSyntaxError(
                 'Expected THEN AFTER IF',
                 self.token.pos_start, self.token.pos_end
@@ -201,6 +238,13 @@ class Parser:
 
             cond = res.register(self.expr())
             if res.error: return res
+
+            if self.token.value != Keyword.ASSIGN_END:
+                return res.failure(InvalidSyntaxError(
+                    'Expected to end comparision with hai',
+                    self.token.pos_start, self.token.pos_end
+                ))
+            res.register(self.increment())
 
             if not self.token.value == Keyword.THEN:
                 return res.failure(InvalidSyntaxError(
